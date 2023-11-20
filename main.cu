@@ -22,7 +22,7 @@ int main()
 	/*gaussian denklemi*/
 	cv::utils::logging::setLogLevel(cv::utils::logging::LogLevel::LOG_LEVEL_SILENT); /*supressing annoying opencv infos in cmdline*/
 
-	std::string img_path = "/home/ben/Desktop/cuda-img-enhancement/images/2048.png";
+	std::string img_path = "/home/ben/Desktop/cuda-img-enhancement/images/1024.png";
 	cv::Mat color_img = cv::imread(img_path, cv::IMREAD_COLOR);
 
 	cv::Mat gray_img;
@@ -88,13 +88,13 @@ int main()
 	std::cout << "Acceleration of shared mem in 3d image: " << gpu_3d_elapsed / gpu_3d_sm_elapsed << "\n";
 
 	// cv::imshow("img", color_img);
-	// cv::imshow("img-gray", gray_img);
+	// // cv::imshow("img-gray", gray_img);
 
 	// cv::imshow("cpu-color", color_cpu_img);
-	// cv::imshow("cpu-gray", gray_cpu_img);
+	// // cv::imshow("cpu-gray", gray_cpu_img);
 
-	// // cv::imshow("cpu-color-multithreaded", color_cpu_parallel_img);
-	// // cv::imshow("cpu-gray-multithreaded", gray_cpu_parallel_img);
+	// // // cv::imshow("cpu-color-multithreaded", color_cpu_parallel_img);
+	// // // cv::imshow("cpu-gray-multithreaded", gray_cpu_parallel_img);
 
 	// cv::imshow("gpu-color", color_gpu_img);
 	// cv::imshow("gpu-gray", gray_gpu_img);

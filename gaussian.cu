@@ -187,9 +187,9 @@ __global__ void k_3D_gaussian_filter(unsigned char *input, int rows, int cols, i
 }
 __global__ void k_3D_gaussian_filter_shared_mem(unsigned char *input, int rows, int cols, int mask_dim)
 {
-	__shared__ unsigned char cache_red[32][32];
-	__shared__ unsigned char cache_green[32][32];
-	__shared__ unsigned char cache_blue[32][32];
+	__shared__ unsigned char cache_red[34][34];
+	__shared__ unsigned char cache_green[34][34];
+	__shared__ unsigned char cache_blue[34][34];
 
 	int conv_kernel[GAUSSIAN_FILTER_SIZE][GAUSSIAN_FILTER_SIZE] = {{1, 2, 1}, {2, 4, 2}, {1, 2, 1}};
 
@@ -197,49 +197,61 @@ __global__ void k_3D_gaussian_filter_shared_mem(unsigned char *input, int rows, 
 	int tx = blockIdx.y * blockDim.y + threadIdx.y;
 	int threadId = (tx * cols + ty) * 3;
 
-	int offset = GAUSSIAN_FILTER_SIZE / 2;
-	int new_red_val = 0;
-	int new_green_val = 0;
-	int new_blue_val = 0;
 
-	if (threadId >= rows * cols * 3)
-	{
+	if( tx >= rows - 1 || ty >= cols - 1 || tx == 0 || ty == 0){
 		return;
 	}
 
-	unsigned int cy = threadIdx.x;
-	unsigned int cx = threadIdx.y;
+	int offset = GAUSSIAN_FILTER_SIZE / 2;
+	
+	unsigned int bx = threadIdx.y;
+	unsigned int by = threadIdx.x;
 
-	cache_red[cx][cy] = input[threadId]; /*load data shared mem*/
+	unsigned int cy = by + 1;
+	unsigned int cx = bx + 1;
+
+	cache_red[cx][cy] = input[threadId];
 	cache_green[cx][cy] = input[threadId + 1]; 
-	cache_blue[cx][cy] = input[threadId + 2]; 
+	cache_blue[cx][cy] = input[threadId + 2];
+
+	if(bx == 0){
+		cache_red[0][cy] = input[((tx - 1) * cols +ty) * 3];
+		cache_green[0][cy] = input[((tx - 1) * cols +ty) * 3 + 1];
+		cache_blue[0][cy] = input[((tx - 1) * cols +ty) * 3 + 2];
+	}
+	if(bx == 31){
+		cache_red[33][cy] = input[((tx + 1) * cols +ty) * 3];
+		cache_green[33][cy] = input[((tx + 1) * cols +ty) * 3 + 1];
+		cache_blue[33][cy] = input[((tx + 1) * cols +ty) * 3 + 2];
+	}
+	if(by == 0){
+		cache_red[cx][0] = input[((tx) * cols + ty - 1) * 3];
+		cache_green[cx][0] = input[((tx) * cols + ty - 1) * 3 + 1];
+		cache_blue[cx][0] = input[((tx) * cols + ty - 1) * 3 + 2];
+	}
+	if(by == 31){
+		cache_red[cx][33] = input[((tx) * cols + ty + 1) * 3];
+		cache_green[cx][33] = input[((tx) * cols + ty + 1) * 3 + 1];
+		cache_blue[cx][33] = input[((tx) * cols + ty + 1) * 3 + 2];
+	}
 	__syncthreads();
+
+	int new_red_val = 0;
+	int new_green_val = 0;
+	int new_blue_val = 0;
 
 	for (int i = 0; i < mask_dim; i++)
 	{
 		for (int j = 0; j < mask_dim; j++)
 		{ /*travel on conv matrix*/
-			if ((tx > 0 && tx < rows - 1) && (ty > 0 && ty < cols - 1))
-			{
-				int x_index = cx - offset + i;
-				int y_index = cy - offset + j;
-				if (cx == 31 || cx == 0 || cy == 0 || cy == 31)
-				{
-					new_red_val += conv_kernel[i][j] * input[((tx - offset + i) * cols + (ty - offset + j)) * 3];
-					new_green_val += conv_kernel[i][j] * input[((tx - offset + i) * cols + (ty - offset + j)) * 3 + 1];
-					new_blue_val += conv_kernel[i][j] * input[((tx - offset + i) * cols + (ty - offset + j)) * 3 + 2];
-				}
-				else
-				{
-					new_red_val += conv_kernel[i][j] * cache_red[x_index][y_index];
-					new_green_val += conv_kernel[i][j] * cache_green[x_index][y_index];
-					new_blue_val += conv_kernel[i][j] * cache_blue[x_index][y_index];
-				}
-			}
-			else
-			{
-				return;
-			}
+
+			int x_index = cx - offset + i;
+			int y_index = cy - offset + j;
+
+			new_red_val += conv_kernel[i][j] * cache_red[x_index][y_index];
+			new_green_val += conv_kernel[i][j] * cache_green[x_index][y_index];
+			new_blue_val += conv_kernel[i][j] * cache_blue[x_index][y_index];
+
 		}
 	}
 
