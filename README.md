@@ -13,8 +13,8 @@ gaussian filter : 59.6874 times faster
 gaussian filter (shared memory): 49.5195 times faster (bank conflict,gonna fix later)  
 
 sobel filter : 89.1415 times faster  
-sobel filter (shared memory) : 76.5014 (bank conflict, gonna fix later)  
+sobel filter (shared memory) : 76.5014 (bank conflict, gonna fix later)
 
 
-
+This application is currently in develop and maintenance stage. 
 
