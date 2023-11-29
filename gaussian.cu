@@ -267,7 +267,7 @@ float gaussian_filter_gpu_1D(cv::Mat input_img, cv::Mat *output_img, bool sm)
 	unsigned char *input = input_img.data;
 	unsigned char *output = output_img->data;
 
-	int thread_load = 3; /*32 96*/
+	int thread_load = 3;
 	unsigned int cols = input_img.cols;
 	unsigned int rows = input_img.rows;
 	unsigned int pixels = cols * rows;
@@ -294,8 +294,6 @@ float gaussian_filter_gpu_1D(cv::Mat input_img, cv::Mat *output_img, bool sm)
 	else{
 		k_1D_gaussian_filter<<<grid, block>>>(gpu_input, rows, cols, mask_dim, thread_load, channels);
 	}
-	cudaError_t cudaError = cudaGetLastError();cudaGetLastError();
-	std::cerr << "CUDA Error: " << cudaGetErrorString(cudaError) << std::endl;
 	CHECK_CUDA_ERROR(cudaMemcpy(output, gpu_input, size, cudaMemcpyDeviceToHost));
 
 	cudaEventRecord(stop);

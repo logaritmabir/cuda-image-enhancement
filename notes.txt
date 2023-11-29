@@ -1,0 +1,169 @@
+	// unsigned char *gpu_input_red = NULL;
+	// unsigned char *gpu_input_green = NULL;
+	// unsigned char *gpu_input_blue = NULL;
+
+	// unsigned int cols = input_img.cols;
+	// unsigned int rows = input_img.rows;
+	// unsigned int pixels = cols * rows;
+	// unsigned int size = pixels * sizeof(unsigned char);
+
+	// std::vector <cv::Mat> input_channels;
+	// std::vector <cv::Mat> output_channels;
+
+	// cv::split(input_img,input_channels);
+	// cv::split(*output_img,output_channels);
+
+	// const uint mask_dim = 3;
+
+	// dim3 block(32, 32);
+	// dim3 grid((cols + block.x - 1) / block.x, (rows + block.y - 1) / block.y);
+
+	// cudaEvent_t start, stop;
+	// cudaEventCreate(&start);
+	// cudaEventCreate(&stop);
+
+	// cudaEventRecord(start);
+
+	// cudaStream_t stream1, stream2, stream3;
+	// cudaStreamCreate(&stream1);
+	// cudaStreamCreate(&stream2);
+	// cudaStreamCreate(&stream3);
+
+	// CHECK_CUDA_ERROR(cudaMalloc((unsigned char **)&gpu_input_red, size));
+	// CHECK_CUDA_ERROR(cudaMalloc((unsigned char **)&gpu_input_green, size));
+	// CHECK_CUDA_ERROR(cudaMalloc((unsigned char **)&gpu_input_blue, size));
+
+	// CHECK_CUDA_ERROR(cudaMemcpyAsync(gpu_input_red, input_channels.at(0).data, size, cudaMemcpyHostToDevice, stream1));
+	// gaussian_filter<<<grid, block, 0 , stream1>>>(gpu_input_red, rows, cols, mask_dim);
+
+	// CHECK_CUDA_ERROR(cudaMemcpyAsync(gpu_input_green, input_channels.at(1).data, size, cudaMemcpyHostToDevice, stream2));
+	// gaussian_filter<<<grid, block, 0 , stream2>>>(gpu_input_green, rows, cols, mask_dim);
+	
+	// CHECK_CUDA_ERROR(cudaMemcpyAsync(gpu_input_blue, input_channels.at(2).data, size, cudaMemcpyHostToDevice, stream3));
+	// gaussian_filter<<<grid, block, 0 , stream3>>>(gpu_input_blue, rows, cols, mask_dim);
+
+	// CHECK_CUDA_ERROR(cudaMemcpyAsync(output_channels.at(0).data, gpu_input_red, size, cudaMemcpyDeviceToHost, stream1));
+	// CHECK_CUDA_ERROR(cudaMemcpyAsync(output_channels.at(1).data, gpu_input_green, size, cudaMemcpyDeviceToHost, stream2));
+	// CHECK_CUDA_ERROR(cudaMemcpyAsync(output_channels.at(2).data, gpu_input_blue, size, cudaMemcpyDeviceToHost, stream3));
+
+	// cudaStreamSynchronize(stream1);
+	// cudaStreamSynchronize(stream2);
+	// cudaStreamSynchronize(stream3);
+
+	// cudaEventRecord(stop);
+	// cudaEventSynchronize(stop);
+
+	// float elapsed = 0.0f;
+	// cudaEventElapsedTime(&elapsed, start, stop);
+
+	// cv::merge(output_channels,*output_img);
+
+	// cudaFree(gpu_input_red);
+	// cudaFree(gpu_input_green);
+	// cudaFree(gpu_input_blue);
+	// return elapsed;
+
+
+	// float histogram_equalization_cpu_parallel_3D(cv::Mat inputImg, cv::Mat* outputImg) {
+// 	const unsigned char* input = inputImg.data;
+// 	unsigned char* output = outputImg->data;
+
+// 	const unsigned int rows = inputImg.rows;
+// 	const unsigned int cols = inputImg.cols;
+
+// 	int histogram_red[256] = { 0 };
+// 	int histogram_green[256] = { 0 };
+// 	int histogram_blue[256] = { 0 };
+
+// 	float normalize_histogram_red[256] = { 0 };
+// 	float normalize_histogram_green[256] = { 0 };
+// 	float normalize_histogram_blue[256] = { 0 };
+
+// 	float cdf_red[256] = { 0 };
+// 	float cdf_green[256] = { 0 };
+// 	float cdf_blue[256] = { 0 };
+
+// 	int equalization_red[256] = { 0 };
+// 	int equalization_green[256] = { 0 };
+// 	int equalization_blue[256] = { 0 };
+
+// 	int pixels = inputImg.cols * inputImg.rows;
+
+// 	std::vector <std::thread> threads_extract_histogram;
+// 	std::vector <std::thread> threads_histogram_equalization;
+
+// 	std::mutex mtx;
+// 	std::condition_variable cv;
+
+// 	const int MAX_THREAD_SUPPORT = 12;
+// 	const int stride = rows / MAX_THREAD_SUPPORT;
+
+// 	auto start = std::chrono::steady_clock::now();
+
+// 	for (int id = 0; id < MAX_THREAD_SUPPORT; id++) {
+// 		threads_extract_histogram.push_back(std::thread([&,id] () {
+// 			int range_start = stride * id;
+// 			int range_end = (id == MAX_THREAD_SUPPORT - 1) ? rows : stride * (id + 1);
+
+// 			for (int r = range_start; r < range_end; r++) {
+// 				for (int c = 0; c < cols; c++) {
+// 					{
+// 						{
+// 							int index = (r * cols + c) * 3;
+// 							std::unique_lock<std::mutex> lck(mtx);
+// 							histogram_red[input[index]]++;
+// 							histogram_green[input[index + 1]]++;
+// 							histogram_blue[input[index + 2]]++;
+// 						}
+// 					}
+// 				}
+// 			}
+// 		}));
+// 	}
+// 	for (std::thread& thread : threads_extract_histogram) {
+// 		thread.join();
+// 	}
+// 	for (int i = 0; i < 256; i++) {
+// 		normalize_histogram_red[i] = (histogram_red[i] / (float)pixels);
+// 		normalize_histogram_green[i] = (histogram_green[i] / (float)pixels);
+// 		normalize_histogram_blue[i] = (histogram_blue[i] / (float)pixels);
+// 	}
+
+// 	cdf_red[0] = normalize_histogram_red[0];
+// 	cdf_green[0] = normalize_histogram_green[0];
+// 	cdf_blue[0] = normalize_histogram_blue[0];
+
+// 	for (int i = 1; i < 256; i++) {
+// 		cdf_red[i] = cdf_red[i - 1] + normalize_histogram_red[i];
+// 		cdf_green[i] = cdf_green[i - 1] + normalize_histogram_green[i];
+// 		cdf_blue[i] = cdf_blue[i - 1] + normalize_histogram_blue[i];
+// 	}
+
+// 	for (int i = 0; i < 256; i++) {
+// 		equalization_red[i] = int((cdf_red[i] * 255.0f) + 0.5f);
+// 		equalization_green[i] = int((cdf_green[i] * 255.0f) + 0.5f);
+// 		equalization_blue[i] = int((cdf_blue[i] * 255.0f) + 0.5f);
+// 	}
+	
+// 	for (int id = 0; id < MAX_THREAD_SUPPORT; id++) {
+// 		threads_histogram_equalization.push_back(std::thread([&,id] () {
+// 			int range_start = stride * id;
+// 			int range_end = (id == MAX_THREAD_SUPPORT - 1) ? rows : stride * (id + 1);
+// 			for (int r = range_start; r < range_end; r++) {
+// 				for (int c = 0; c < cols; c++) {
+// 					int index = (r * cols + c) * 3;
+// 					output[index] = equalization_red[input[index]];
+// 					output[index + 1] = equalization_green[input[index + 1]];
+// 					output[index + 2] = equalization_blue[input[index + 2]];
+// 				}
+// 			}
+// 		}));
+// 	}
+// 	for (std::thread& thread : threads_histogram_equalization) {
+// 		thread.join();
+// 	}
+	
+// 	auto end = std::chrono::steady_clock::now();
+// 	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start) / 1000.0f;
+// 	return elapsed.count();
+// }

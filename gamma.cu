@@ -1,40 +1,43 @@
 #include "gamma.cuh"
 
 __device__ unsigned char LUT_device[256];
+__constant__ unsigned char LUT_constant[256];
 
 
 __global__ void k_init_LUT(float gamma) {
 	int blockId = blockIdx.x + blockIdx.y * gridDim.x;
 	int threadId = (blockId * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x);
+
 	LUT_device[threadId] = static_cast<unsigned char>(pow(threadId / 255.0f, gamma) * 255);
 }
 
 __global__ void k_3D_gamma_correction(unsigned char* input, int rows, int cols) {
-	int blockId = blockIdx.x + blockIdx.y * gridDim.x;
-	int threadId = (blockId * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x);
+	int thread_id = (blockIdx.x * blockDim.x) + threadIdx.x;
 	
-	if (threadId >= rows * cols) {
+	if (thread_id >= rows * cols) {
 		return;
 	}
-	input[threadId] = LUT_device[input[threadId]];
+	__syncthreads();
+	input[thread_id] = LUT_device[input[thread_id]];
 }
+
 
 __global__ void k_3D_gamma_correction_shared_mem(unsigned char* input, int rows, int cols) {
 	__shared__ unsigned char cache_LUT[256];
+		
+	int thread_id_in_block = threadIdx.x;
+	int thread_id = (blockIdx.x * blockDim.x) + threadIdx.x;
+	
+	if (thread_id_in_block < 256) {
+		cache_LUT[thread_id_in_block] = LUT_device[thread_id_in_block];
+	}
 
-	int blockId = blockIdx.x + blockIdx.y * gridDim.x;
-	int threadId = (blockId * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x);
-
-	int threadIdInBlock = (threadIdx.x * blockDim.y) + threadIdx.y;
-	if (threadId >= rows * cols) {
+	if (thread_id >= rows * cols) {
 		return;
 	}
-
-	if (threadIdInBlock < 256) {
-		cache_LUT[threadIdInBlock] = LUT_device[threadIdInBlock];
-	}
 	__syncthreads();
-	input[threadId] = cache_LUT[input[threadId]];
+
+	input[thread_id] = cache_LUT[input[thread_id]];
 }
 
 float gamma_correction_gpu_3D(cv::Mat input_img, cv::Mat* output_img, float gamma, bool sm) {
@@ -52,18 +55,20 @@ float gamma_correction_gpu_3D(cv::Mat input_img, cv::Mat* output_img, float gamm
 	cudaEventCreate(&stop);
 	cudaEventRecord(start);
 
+	CHECK_CUDA_ERROR(cudaHostAlloc(&input, size, cudaHostAllocDefault));
+	memcpy(input, input_img.data, size);
+
 	CHECK_CUDA_ERROR(cudaMalloc((void**)&gpu_input, size));
 	CHECK_CUDA_ERROR(cudaMemcpy(gpu_input, input, size, cudaMemcpyHostToDevice));
 
-	dim3 block(32, 32);
-	dim3 grid(((cols) + block.x - 1) / block.x, (rows + block.y - 1) / block.y);
+	dim3 block(1024);
+	dim3 grid((size + block.x - 1) / block.x);
+
 	if(sm){
-		k_init_LUT << <4, 64 >> > (gamma);
-		CHECK_CUDA_ERROR(cudaDeviceSynchronize());
+		k_init_LUT << <8, 32 >> > (gamma);
 		k_3D_gamma_correction_shared_mem << <grid, block >> > (gpu_input, rows, cols);
 	}else{
-		k_init_LUT << <4, 64 >> > (gamma);
-		CHECK_CUDA_ERROR(cudaDeviceSynchronize());
+		k_init_LUT << <8, 32 >> > (gamma);
 		k_3D_gamma_correction << <grid, block >> > (gpu_input, rows, cols);
 	}
 
@@ -76,6 +81,7 @@ float gamma_correction_gpu_3D(cv::Mat input_img, cv::Mat* output_img, float gamm
 	cudaEventElapsedTime(&gpuElapsedTime, start, stop);
 
 	cudaFree(gpu_input);
+	cudaFreeHost(input);
 	cudaEventDestroy(start);
 	cudaEventDestroy(stop);
 	cudaDeviceReset();
@@ -110,7 +116,7 @@ float gamma_correction_cpu_parallel_3D(cv::Mat inputImg, cv::Mat* outputImg, flo
 	unsigned char* output = outputImg->data;
 
 	unsigned int rows = inputImg.rows;
-	unsigned int cols = inputImg.cols;
+	unsigned int cols = inputImg.cols * 3;
 
 	auto start = std::chrono::steady_clock::now();
 
@@ -132,10 +138,8 @@ float gamma_correction_cpu_parallel_3D(cv::Mat inputImg, cv::Mat* outputImg, flo
 
 			for (int x = range_start; x < range_end; x++) {
 				for (int y = 0; y < cols; y++) {
-					for (int c = 0; c < 3; c++) {
-						int index = (x * cols * 3) + (y * 3) + c;
-						output[index] = LUT[input[index]];
-					}
+					int index = x * cols + y;
+					output[index] = LUT[input[index]];
 				}
 			}
 			}));
@@ -149,64 +153,33 @@ float gamma_correction_cpu_parallel_3D(cv::Mat inputImg, cv::Mat* outputImg, flo
 	return elapsed.count();
 }
 
-// float gamma_correction_frames_cpu(cv::Mat* frames, cv::Mat* output_frames,uint frame_count, float gamma) {
-// 	float elapsed = 0.0f;
-// 	for (int i = 0; i < frame_count; i++) {
-// 		elapsed += gamma_correction_cpu(&frames[i], output_frames[i], gamma);
-// 	}
-// 	return elapsed;
-// }
-// float gamma_correction_frames_gpu(cv::Mat* input_frames, cv::Mat* output_frames, unsigned int frame_count, float gamma) {
-// 	unsigned int cols = input_frames[0].cols;
-// 	unsigned int rows = input_frames[0].rows;
-// 	unsigned int frame_size = rows * cols * 3 * sizeof(unsigned char);/*size of a frame*/
-// 	unsigned int size = frame_size * frame_count; /*size of data to transfer to gpu*/
+float gamma_correction_cpu_openMP_3D(cv::Mat inputImg, cv::Mat* outputImg, float gamma) {
+	unsigned char* input = inputImg.data;
+	unsigned char* output = outputImg->data;
 
-// 	unsigned char* gpu_input = nullptr;
-// 	unsigned char* gpu_output = nullptr;
+	unsigned int rows = inputImg.rows;
+	unsigned int cols = inputImg.cols * 3;
 
-// 	unsigned char LUT[256] = { 0 };
-// 	for (int i = 0; i < 256; i++) {
-// 		LUT[i] = static_cast<uchar>(pow(i / 255.0f, gamma) * 255);
-// 	}
+	auto start = std::chrono::steady_clock::now();
 
-// 	cudaEvent_t start, stop;
-// 	cudaEventCreate(&start);
-// 	cudaEventCreate(&stop);
+	const int MAX_THREAD_SUPPORT = std::thread::hardware_concurrency();
 
-// 	cudaEventRecord(start);
+	unsigned char LUT[256] = { 0 };
 
-// 	CHECK_CUDA_ERROR(cudaMemcpyToSymbolAsync(LUT_constant, LUT, sizeof(unsigned char) * 256, 0));
+	#pragma omp parallel for num_threads(MAX_THREAD_SUPPORT)
+	for (int i = 0; i < 256; i++) {
+		LUT[i] = static_cast<unsigned char>(pow(i / 255.0f, gamma) * 255);
+	}
 
-// 	CHECK_CUDA_ERROR(cudaHostAlloc((void **) & input_frames->data, size, cudaHostAllocDefault));
-// 	CHECK_CUDA_ERROR(cudaHostAlloc((void **) & output_frames->data, size, cudaHostAllocDefault));
+	#pragma omp parallel for num_threads(MAX_THREAD_SUPPORT)
+	for (int x = 0; x < rows; x++) {
+		for (int y = 0; y < cols; y++) {
+			int index = x * cols + y;
+			output[index] = LUT[input[index]];
+		}
+	}
 
-// 	CHECK_CUDA_ERROR(cudaMalloc((void**)&gpu_input, size));
-// 	CHECK_CUDA_ERROR(cudaMalloc((void**)&gpu_output, size));
-
-// 	for (int i = 0; i < frame_count; i++) {
-// 		CHECK_CUDA_ERROR(cudaMemcpyAsync(gpu_input + i * frame_size, input_frames[i].data, frame_size, cudaMemcpyHostToDevice, 0));
-// 		CHECK_CUDA_ERROR(cudaMemcpyAsync(gpu_output + i * frame_size, output_frames[i].data, frame_size, cudaMemcpyHostToDevice, 0));
-// 	}
-// 	CHECK_CUDA_ERROR(cudaStreamSynchronize(0));
-// 	dim3 block(32, 32);
-// 	dim3 grid((cols + block.x - 1) / block.x, (rows + block.y - 1) / block.y);
-
-// 	for (int i = 0; i < frame_count; i++) {
-// 		shared_gamma_correction << <grid, block >> > (gpu_input + i * frame_size, gpu_output + i * frame_size, rows, cols);
-// 	}
-
-// 	for (int i = 0; i < frame_count; i++) {
-// 		CHECK_CUDA_ERROR(cudaMemcpyAsync(output_frames[i].data, gpu_output + i * frame_size, frame_size, cudaMemcpyDeviceToHost, 0));
-// 	}
-
-// 	cudaEventRecord(stop);
-// 	cudaEventSynchronize(stop);
-// 	float gpuElapsedTime = 0;
-// 	cudaEventElapsedTime(&gpuElapsedTime, start, stop);
-
-// 	cudaFree(gpu_input);
-// 	cudaFree(gpu_output);
-// 	cudaDeviceReset();
-// 	return gpuElapsedTime;
-// }
+	auto end = std::chrono::steady_clock::now();
+	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start) / 1000.0f;
+	return elapsed.count();
+}

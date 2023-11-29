@@ -29,3 +29,6 @@ float histogram_equalization_cpu_3D(cv::Mat input_img, cv::Mat* output_img);
 
 float histogram_equalization_cpu_parallel_1D(cv::Mat inputImg, cv::Mat* outputImg);
 float histogram_equalization_cpu_parallel_3D(cv::Mat inputImg, cv::Mat* outputImg);
+
+float histogram_equalization_cpu_parallel_openMP_1D(cv::Mat inputImg, cv::Mat* outputImg);
+float histogram_equalization_cpu_parallel_openMP_3D(cv::Mat inputImg, cv::Mat* outputImg);
