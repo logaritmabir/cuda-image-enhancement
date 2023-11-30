@@ -17,6 +17,8 @@ float gaussian_filter_cpu_parallel_3D(cv::Mat input_img, cv::Mat* output_img);
 float gaussian_filter_gpu_1D(cv::Mat input_img, cv::Mat* output_img, bool sm);
 float gaussian_filter_gpu_3D(cv::Mat input_img, cv::Mat* output_img, bool sm);
 
+float gaussian_filter_cpu_openMP_1D(cv::Mat input_img, cv::Mat* output_img);
+float gaussian_filter_cpu_openMP_3D(cv::Mat input_img, cv::Mat* output_img);
 
 
 

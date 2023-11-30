@@ -15,14 +15,9 @@
 
 int main()
 {
-	/* 4,64 YAPILACAK*/
-	/*histogram hesabı local histogram*/
-	/*renkli cache yüklemeler*/
-	/*histogram 3 cache değişimi*/
-	/*gaussian denklemi*/
 	cv::utils::logging::setLogLevel(cv::utils::logging::LogLevel::LOG_LEVEL_SILENT); /*supressing annoying opencv infos in cmdline*/
 
-	std::string img_path = "C:/Users/ben/Desktop/cuda-img-enhancement/images/1024.png";
+	std::string img_path = "C:/Users/ben/Desktop/cuda-img-enhancement/images/4096.png";
 	cv::Mat color_img = cv::imread(img_path, cv::IMREAD_COLOR);
 
 	cv::Mat gray_img;
@@ -41,20 +36,21 @@ int main()
 
 	float cpu_3d_elapsed = 0, cpu_1d_elapsed = 0, gpu_1d_elapsed = 0, gpu_1d_sm_elapsed = 0, gpu_3d_elapsed = 0, gpu_3d_sm_elapsed = 0;
 	float cpu_1d_parallel_elapsed = 0, cpu_3d_parallel_elapsed = 0;
-	int iter = 25;
+	int iter = 1;
 
 	for(int i = 0 ; i < iter ; i++){
-		cpu_1d_elapsed += histogram_equalization_cpu_1D(gray_img, &gray_cpu_img);
-		cpu_3d_elapsed += histogram_equalization_cpu_3D(color_img, &color_cpu_img);
+		//cpu_1d_elapsed += gaussian_filter_cpu_1D(gray_img, &gray_cpu_img);
+		//cpu_3d_elapsed += gaussian_filter_cpu_3D(color_img, &color_cpu_img);
 
-		cpu_1d_parallel_elapsed += histogram_equalization_cpu_parallel_openMP_1D(gray_img, &gray_cpu_parallel_img);
-		//cpu_3d_parallel_elapsed += histogram_equalization_cpu_parallel_openMP_3D(color_img, &color_cpu_parallel_img);
+		//cpu_1d_parallel_elapsed += gaussian_filter_cpu_openMP_1D(gray_img, &gray_cpu_parallel_img);
+		//cpu_3d_parallel_elapsed += gaussian_filter_cpu_openMP_3D(color_img, &color_cpu_parallel_img);
 
-		//gpu_1d_elapsed += histogram_equalization_gpu_1D(gray_img, &gray_gpu_img, false);
-		//gpu_1d_sm_elapsed += histogram_equalization_gpu_1D(gray_img, &gray_gpu_img, true);
-
-		//gpu_3d_elapsed += histogram_equalization_gpu_3D(color_img, &color_gpu_img, false);
-		//gpu_3d_sm_elapsed += histogram_equalization_gpu_3D(color_img, &color_gpu_img, true);
+		//gpu_1d_sm_elapsed += gaussian_filter_gpu_1D(gray_img, &gray_gpu_img, true);
+		//gpu_1d_elapsed += gaussian_filter_gpu_1D(gray_img, &gray_gpu_img, false);
+		
+		gpu_3d_sm_elapsed += gaussian_filter_gpu_3D(color_img, &color_gpu_img, true);
+		gpu_3d_elapsed += gaussian_filter_gpu_3D(color_img, &color_gpu_img, false);
+		
 	}
 
 	cpu_3d_elapsed /= iter;
@@ -69,7 +65,7 @@ int main()
 	std::cout << "cpu_1d_elapsed: " << cpu_1d_elapsed << "\n";
 	std::cout << "cpu_1d_parallel_elapsed: " << cpu_1d_parallel_elapsed << "\n";
 	std::cout << "gpu_1d_elapsed: " << gpu_1d_elapsed << "\n";
-	std::cout << "gpu_1d_sm_elapsed: " << gpu_1d_sm_elapsed << "\n";
+	std::cout << "gpu_1d_sm_elapsed: " << gpu_1d_sm_elapsed << "\n \n";
 
 	std::cout << "cpu_3d_elapsed: " << cpu_3d_elapsed << "\n";
 	std::cout << "cpu_3d_parallel_elapsed: " << cpu_3d_parallel_elapsed << "\n";
@@ -91,17 +87,14 @@ int main()
 
 	cv::imshow("img-gray", gray_img);
 
-	
 	cv::imshow("cpu-gray", gray_cpu_img);
 	cv::imshow("cpu-color", color_cpu_img);
 
 	cv::imshow("cpu-gray-multithreaded", gray_cpu_parallel_img);
-	//cv::imshow("cpu-color-multithreaded", color_cpu_parallel_img);
-
-
+	cv::imshow("cpu-color-multithreaded", color_cpu_parallel_img);
 	
-	//cv::imshow("gpu-gray", gray_gpu_img);
-	//cv::imshow("gpu-color", color_gpu_img);
+	cv::imshow("gpu-gray", gray_gpu_img);
+	cv::imshow("gpu-color", color_gpu_img);
 
 	cv::waitKey(0);
 }

@@ -41,7 +41,7 @@ __global__ void k_1D_gaussian_filter(unsigned char *input, int rows, int cols, i
 }
 __global__ void k_1D_gaussian_filter_shared_mem(unsigned char* input, int rows, int cols, int mask_dim, int thread_load, int channels)
 {
-	__shared__  unsigned char cache[32][32 * 3];
+	__shared__  int cache[32][32 * 3];
 
 	int conv_kernel[GAUSSIAN_FILTER_SIZE][GAUSSIAN_FILTER_SIZE] = {{1, 2, 1}, {2, 4, 2}, {1, 2, 1}};
 
@@ -126,6 +126,9 @@ float gaussian_filter_gpu_3D(cv::Mat input_img, cv::Mat *output_img, bool sm)
 
 	cudaEventRecord(start);
 
+	CHECK_CUDA_ERROR(cudaHostAlloc(&input, size, cudaHostAllocDefault));
+	memcpy(input, input_img.data, size);
+
 	CHECK_CUDA_ERROR(cudaMalloc((unsigned char **)&gpu_input, size));
 	CHECK_CUDA_ERROR(cudaMemcpy(gpu_input, input, size, cudaMemcpyHostToDevice));
 
@@ -136,7 +139,7 @@ float gaussian_filter_gpu_3D(cv::Mat input_img, cv::Mat *output_img, bool sm)
 		k_3D_gaussian_filter<<<grid, block>>>(gpu_input, rows, cols, mask_dim);
 	}
 
-	CHECK_CUDA_ERROR(cudaMemcpy(output, gpu_input, size, cudaMemcpyDeviceToHost));
+	CHECK_CUDA_ERROR(cudaMemcpy(input, gpu_input, size, cudaMemcpyDeviceToHost));
 
 	cudaEventRecord(stop);
 	cudaEventSynchronize(stop);
@@ -187,20 +190,15 @@ __global__ void k_3D_gaussian_filter(unsigned char *input, int rows, int cols, i
 }
 __global__ void k_3D_gaussian_filter_shared_mem(unsigned char *input, int rows, int cols, int mask_dim)
 {
-	__shared__ unsigned char cache_red[34][34];
-	__shared__ unsigned char cache_green[34][34];
-	__shared__ unsigned char cache_blue[34][34];
+	__shared__ int cache_red[34][34];
+	__shared__ int cache_green[34][34];
+	__shared__ int cache_blue[34][34];
 
 	int conv_kernel[GAUSSIAN_FILTER_SIZE][GAUSSIAN_FILTER_SIZE] = {{1, 2, 1}, {2, 4, 2}, {1, 2, 1}};
 
 	int ty = blockIdx.x * blockDim.x + threadIdx.x;
 	int tx = blockIdx.y * blockDim.y + threadIdx.y;
 	int threadId = (tx * cols + ty) * 3;
-
-
-	if( tx >= rows - 1 || ty >= cols - 1 || tx == 0 || ty == 0){
-		return;
-	}
 
 	int offset = GAUSSIAN_FILTER_SIZE / 2;
 	
@@ -254,7 +252,6 @@ __global__ void k_3D_gaussian_filter_shared_mem(unsigned char *input, int rows, 
 
 		}
 	}
-
 	input[threadId] = static_cast<uchar>(new_red_val / 16);
 	input[threadId + 1] = static_cast<uchar>(new_green_val / 16);
 	input[threadId + 2] = static_cast<uchar>(new_blue_val / 16);
@@ -285,6 +282,9 @@ float gaussian_filter_gpu_1D(cv::Mat input_img, cv::Mat *output_img, bool sm)
 
 	cudaEventRecord(start);
 
+	CHECK_CUDA_ERROR(cudaHostAlloc(&input, size, cudaHostAllocDefault));
+	memcpy(input, input_img.data, size);
+
 	CHECK_CUDA_ERROR(cudaMalloc((unsigned char **)&gpu_input, size));
 	CHECK_CUDA_ERROR(cudaMemcpy(gpu_input, input, size, cudaMemcpyHostToDevice));
 
@@ -294,7 +294,7 @@ float gaussian_filter_gpu_1D(cv::Mat input_img, cv::Mat *output_img, bool sm)
 	else{
 		k_1D_gaussian_filter<<<grid, block>>>(gpu_input, rows, cols, mask_dim, thread_load, channels);
 	}
-	CHECK_CUDA_ERROR(cudaMemcpy(output, gpu_input, size, cudaMemcpyDeviceToHost));
+	CHECK_CUDA_ERROR(cudaMemcpy(input, gpu_input, size, cudaMemcpyDeviceToHost));
 
 	cudaEventRecord(stop);
 	cudaEventSynchronize(stop);
@@ -468,6 +468,77 @@ float gaussian_filter_cpu_parallel_3D(cv::Mat input_img, cv::Mat* output_img)
 	for (std::thread &th : threads)
 	{
 		th.join();
+	}
+	auto end = std::chrono::steady_clock::now();
+	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start) / 1000.0f;
+	return elapsed.count();
+}
+
+float gaussian_filter_cpu_openMP_1D(cv::Mat input_img, cv::Mat* output_img)
+{
+	int cols = input_img.cols;
+	int rows = input_img.rows;
+
+	unsigned char* input = input_img.data;
+	unsigned char* output = output_img->data;
+	const unsigned short mask_dim = 3;
+	float kernel[mask_dim][mask_dim] = { {1, 2, 1}, {2, 4, 2}, {1, 2, 1} };
+	auto start = std::chrono::steady_clock::now();
+
+	#pragma omp parallel for
+	for (int i = 1; i < rows - 1; i++)
+	{
+		for (int j = 1; j < cols - 1; j++)
+		{
+			int newPixelValue = 0;
+			for (int m = 0; m < mask_dim; m++)
+			{
+				for (int n = 0; n < mask_dim; n++)
+				{
+					newPixelValue += input[(i + m - 1) * cols + (j + n - 1)] * kernel[m][n];
+				}
+			}
+			output[i * cols + j] = newPixelValue / 16;
+		}
+	}
+	auto end = std::chrono::steady_clock::now();
+	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start) / 1000.0f;
+	return elapsed.count();
+}
+
+float gaussian_filter_cpu_openMP_3D(cv::Mat input_img, cv::Mat* output_img)
+{
+	int cols = input_img.cols;
+	int rows = input_img.rows;
+
+	unsigned char* input = input_img.data;
+	unsigned char* output = output_img->data;
+	const unsigned short mask_dim = 3;
+
+	float kernel[mask_dim][mask_dim] = { {1, 2, 1}, {2, 4, 2}, {1, 2, 1} };
+	auto start = std::chrono::steady_clock::now();
+
+	#pragma omp parallel for
+	for (int i = 1; i < rows - 1; i++)
+	{
+		for (int j = 1; j < cols - 1; j++)
+		{
+			int new_red_val = 0;
+			int new_green_val = 0;
+			int new_blue_val = 0;
+			for (int m = 0; m < mask_dim; m++)
+			{
+				for (int n = 0; n < mask_dim; n++)
+				{
+					new_red_val += input[(((i + m - 1) * cols + (j + n - 1))) * 3] * kernel[m][n];
+					new_green_val += input[((i + m - 1) * cols + (j + n - 1)) * 3 + 1] * kernel[m][n];
+					new_blue_val += input[((i + m - 1) * cols + (j + n - 1)) * 3 + 2] * kernel[m][n];
+				}
+			}
+			output[(i * cols + j) * 3] = new_red_val / 16;
+			output[(i * cols + j) * 3 + 1] = new_green_val / 16;
+			output[(i * cols + j) * 3 + 2] = new_blue_val / 16;
+		}
 	}
 	auto end = std::chrono::steady_clock::now();
 	auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start) / 1000.0f;

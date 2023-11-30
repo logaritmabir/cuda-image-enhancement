@@ -176,7 +176,7 @@ __global__ void k_3D_extract_histogram_shared_mem(unsigned char* input, int tota
 	}
 }
 
-__global__ void k_3D_normalize_cdf_equalization(int pixels) { /*1,256*/
+__global__ void k_3D_normalize_cdf_equalization(int pixels) {
 	int tid = (blockIdx.x * blockDim.x) + threadIdx.x;
 
 	dev_normalized_histogram_red[tid] = dev_histogram_red[tid] / (float)(pixels);
@@ -200,7 +200,7 @@ __global__ void k_3D_normalize_cdf_equalization(int pixels) { /*1,256*/
 	dev_equalization_values_blue[tid] = int((dev_cdf_blue[tid] * 255.0f) + 0.5f);
 }
 
-__global__ void k_3D_normalize_cdf_equalization_shared_mem(int pixels) { /*1,256*/
+__global__ void k_3D_normalize_cdf_equalization_shared_mem(int pixels) {
 	__shared__ float cache_normalized_histogram_red[256];
 	__shared__ float cache_normalized_histogram_green[256];
 	__shared__ float cache_normalized_histogram_blue[256];
@@ -310,6 +310,9 @@ float histogram_equalization_gpu_3D(cv::Mat input_img, cv::Mat* output_img, bool
 
 	cudaEventRecord(start);
 
+	CHECK_CUDA_ERROR(cudaHostAlloc(&input, size, cudaHostAllocDefault));
+	memcpy(input, input_img.data, size);
+
 	CHECK_CUDA_ERROR(cudaMalloc((unsigned char**)&gpu_input, size));
 	CHECK_CUDA_ERROR(cudaMemcpy(gpu_input, input, size, cudaMemcpyHostToDevice));
 
@@ -334,7 +337,7 @@ float histogram_equalization_gpu_3D(cv::Mat input_img, cv::Mat* output_img, bool
 		k_3D_histogram_equalization<< <grid, block >> > (gpu_input, total_channel_size);
 	}
 	
-	CHECK_CUDA_ERROR(cudaMemcpy(output, gpu_input, size, cudaMemcpyDeviceToHost));
+	CHECK_CUDA_ERROR(cudaMemcpy(input, gpu_input, size, cudaMemcpyDeviceToHost));
 
 	cudaEventRecord(stop);
 	cudaEventSynchronize(stop);
@@ -365,6 +368,9 @@ float histogram_equalization_gpu_1D(cv::Mat input_img, cv::Mat* output_img, bool
 
 	cudaEventRecord(start);
 
+	CHECK_CUDA_ERROR(cudaHostAlloc(&input, data_size, cudaHostAllocDefault));
+	memcpy(input, input_img.data, data_size);
+
 	CHECK_CUDA_ERROR(cudaMalloc((unsigned char**)&gpu_input, data_size));
 	CHECK_CUDA_ERROR(cudaMemcpy(gpu_input, input, data_size, cudaMemcpyHostToDevice));
 
@@ -385,7 +391,7 @@ float histogram_equalization_gpu_1D(cv::Mat input_img, cv::Mat* output_img, bool
 		k_1D_histogram_equalization<< <grid, block >> > (gpu_input, pixels);
 	}
 	
-	CHECK_CUDA_ERROR(cudaMemcpy(output, gpu_input, data_size, cudaMemcpyDeviceToHost));
+	CHECK_CUDA_ERROR(cudaMemcpy(input, gpu_input, data_size, cudaMemcpyDeviceToHost));
 
 	cudaEventRecord(stop);
 	cudaEventSynchronize(stop);
@@ -457,25 +463,16 @@ float histogram_equalization_cpu_3D(cv::Mat input_img, cv::Mat* output_img) {
 	int equalization_blue[256] = { 0 };
 
 	int pixels = input_img.cols * input_img.rows;
-	int data_size = pixels * 3;
+	int data_size = pixels;
 
 	auto start = std::chrono::steady_clock::now();
 
 	for (int i = 0; i < data_size; i++) {
-		switch (i % 3)
-		{
-		case 0:
-			histogram_red[input[i]]++;
-			break;
-		case 1:
-			histogram_green[input[i]]++;
-			break;
-		case 2:
-			histogram_blue[input[i]]++;
-			break;
-		default:
-			break;
-		}
+		int index = i * 3;
+
+		histogram_red[input[index]]++;
+		histogram_green[input[index + 1]]++;
+		histogram_blue[input[index + 2]]++;
 	}
 	for (int i = 0; i < 256; i++) { 
 		normalize_histogram_red[i] = (histogram_red[i] / (float)pixels);
@@ -499,21 +496,11 @@ float histogram_equalization_cpu_3D(cv::Mat input_img, cv::Mat* output_img) {
 		equalization_blue[i] = int((cdf_blue[i] * 255.0f) + 0.5f);
 	}
 	for (int i = 0; i < data_size; i++) {
+		int index = i * 3;
 
-		switch (i % 3)
-		{
-		case 0:
-			output[i] = equalization_red[input[i]];
-			break;
-		case 1:
-			output[i] = equalization_green[input[i]];
-			break;
-		case 2:
-			output[i] = equalization_blue[input[i]];
-			break;
-		default:
-			break;
-		}
+		output[index] = equalization_red[input[index]];
+		output[index + 1] = equalization_green[input[index + 1]];
+		output[index + 2] = equalization_blue[input[index + 2]];
 	}
 
 	auto end = std::chrono::steady_clock::now();
@@ -816,11 +803,22 @@ float histogram_equalization_cpu_parallel_openMP_1D(cv::Mat inputImg, cv::Mat* o
 	int pixels = inputImg.cols * inputImg.rows;
 
 	auto start = std::chrono::steady_clock::now();
+	#pragma omp parallel
+	{
+		int l_histogram[256] = {0};
 
-	#pragma omp parallel for
-	for (int i = 0; i < pixels; i++) {
-		#pragma atomic
-		histogram[input[i]]++;
+		#pragma omp for
+		for (int i = 0; i < pixels; i++) {
+			l_histogram[input[i]]++;
+		}
+
+
+		#pragma omp critical
+		{
+			for (int i = 0; i < 256; i++) {
+				histogram[i] += l_histogram[i];
+			}
+		}
 	}
 
 	#pragma omp parallel for
@@ -830,10 +828,11 @@ float histogram_equalization_cpu_parallel_openMP_1D(cv::Mat inputImg, cv::Mat* o
 
 	cdf[0] = normalizedHistogram[0];
 
-	for (int i = 1; i < 256; i++) {
+	#pragma omp parallel for
+	for (int i = 0; i < 256; i++) {
 		float sum = 0;
 		for (int j = 0; j <= i; j++) {
-			sum += normalizedHistogram[i];
+			sum += normalizedHistogram[j];
 		}
 		cdf[i] = sum;
 	}
@@ -874,27 +873,29 @@ float histogram_equalization_cpu_parallel_openMP_3D(cv::Mat input_img, cv::Mat* 
 	int equalization_blue[256] = { 0 };
 
 	int pixels = input_img.cols * input_img.rows;
-	int data_size = pixels * 3;
+	int data_size = pixels;
 
 	auto start = std::chrono::steady_clock::now();
 
-	#pragma omp parallel for
-	for (int i = 0; i < data_size; i++) {
+	#pragma omp parallel
+	{
+		int l_histogram_red[256] = { 0 };
+		int l_histogram_green[256] = { 0 };
+		int l_histogram_blue[256] = { 0 };
+		#pragma omp for
+		for (int i = 0; i < data_size; i++) {
+			int index = i * 3;
+			l_histogram_red[input[index]]++;
+			l_histogram_green[input[index + 1]]++;
+			l_histogram_blue[input[index + 2]]++;
+		}
 		#pragma omp critical
-		switch (i % 3)
 		{
-		case 0:
-			histogram_red[input[i]]++;
-			break;
-		case 1:
-			histogram_green[input[i]]++;
-			break;
-		case 2:
-			histogram_blue[input[i]]++;
-			break;
-
-		default:
-			break;
+			for (int i = 0; i < 256; i++) {
+				histogram_red[i] += l_histogram_red[i];
+				histogram_green[i] += l_histogram_green[i];
+				histogram_blue[i] += l_histogram_blue[i];
+			}
 		}
 	}
 
@@ -924,22 +925,11 @@ float histogram_equalization_cpu_parallel_openMP_3D(cv::Mat input_img, cv::Mat* 
 
 	#pragma omp parallel for
 	for (int i = 0; i < data_size; i++) {
-		#pragma omp critical
-		switch (i % 3)
-		{
-		case 0:
-			output[i] = equalization_red[input[i]];
-			break;
-		case 1:
-			output[i] = equalization_green[input[i]];
-			break;
-		case 2:
-			output[i] = equalization_blue[input[i]];
-			break;
+		int index = i * 3;
 
-		default:
-			break;
-		}
+		output[index] = equalization_red[input[index]];
+		output[index + 1] = equalization_green[input[index + 1]];
+		output[index + 2] = equalization_blue[input[index + 2]];
 	}
 
 	auto end = std::chrono::steady_clock::now();

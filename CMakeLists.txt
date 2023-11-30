@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.21)
 project(cuda-demo)
 
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
 enable_language(CUDA)
 
 cmake_policy(SET CMP0104 NEW)
