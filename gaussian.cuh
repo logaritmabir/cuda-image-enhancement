@@ -2,8 +2,8 @@
 
 #include "dependencies.h"
 
-__global__ void k_1D_gaussian_filter(unsigned char* input, int rows, int cols, int mask_dim);
-__global__ void k_1D_gaussian_filter_shared_mem(unsigned char* input, int rows, int cols, int mask_dim);
+__global__ void k_1D_gaussian_filter(unsigned char* input, int rows, int cols, int mask_dim, int thread_load, int channels);
+__global__ void k_1D_gaussian_filter_shared_mem(unsigned char* input, int rows, int cols, int mask_dim, int thread_load, int channels);
 
 __global__ void k_3D_gaussian_filter(unsigned char *input, int rows, int cols, int mask_dim);
 __global__ void k_3D_gaussian_filter_shared_mem(unsigned char *input, int rows, int cols, int mask_dim);
